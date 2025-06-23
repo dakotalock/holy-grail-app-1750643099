@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EchoMe: The Full Stack Echo Chamber</title>
+    <!--
+        1. Tailwind CSS via CDN:
+           This script includes the Tailwind CSS framework, allowing us to use
+           utility classes directly in our HTML for styling.
+    -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /*
+            2. Embedded Custom CSS:
+               Minimal custom CSS for basic layout and animations not directly
+               covered by Tailwind utility classes or for specific overrides.
+        */
+        body {
+            /* Flexbox for centering content on the page */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* Ensure body takes full viewport height */
+            margin: 0;
+            padding: 20px; /* Add padding for smaller screens */
+            box-sizing: border-box; /* Include padding in element's total width/height */
+        }
+
+        /* Basic fade-in animation for dynamic content */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out forwards; /* 'forwards' keeps the end state */
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Utility class to ensure elements are hidden and don't take up space */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased text-gray-800">
+    <!--
+        Responsive Design Principle:
+        The main container uses `max-w-xl` to limit its width on larger screens,
+        ensuring readability, and `w-full` to make it fill available space on smaller screens.
+        Padding and shadow provide visual separation.
+    -->
+    <main class="container bg-white p-8 rounded-lg shadow-xl border border-gray-200 max-w-xl w-full">
+        <h1 class="text-4xl font-extrabold text-center text-indigo-700 mb-6">
+            EchoMe: The Full Stack Echo Chamber
+        </h1>
+        <p class="text-center text-lg text-gray-600 mb-8">
+            Type a message, send it to the server, and see what comes back!
+        </p>
+
+        <!-- 3. EchoInputForm Component -->
+        <section class="mb-8">
+            <!-- Accessibility: sr-only hides text visually but makes it available to screen readers -->
+            <h2 class="sr-only">Message Input Form</h2>
+            <div class="flex flex-col md:flex-row gap-4">
+                <!-- Accessibility: label with for attribute links to input id -->
+                <label for="messageInput" class="sr-only">Your Message</label>
+                <input
+                    type="text"
+                    id="messageInput"
+                    placeholder="Type your message here..."
+                    class="flex-1 p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg"
+                    aria-required="true"
+                    aria-describedby="inputError"
+                >
+                <button
+                    id="echoButton"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-md shadow-md
+                           transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed text-lg"
+                    aria-controls="resultContainer errorDisplay"
+                >
+                    Echo It!
+                </button>
+            </div>
+            <!-- Error message for client-side validation -->
+            <p id="inputError" class="text-red-500 text-sm mt-2 hidden" role="alert" aria-live="polite">
+                Please enter a message before echoing.
+            </p>
+        </section>
+
+        <!-- 4. EchoResultDisplay Component -->
+        <section
+            id="resultContainer"
+            class="bg-indigo-50 border border-indigo-200 rounded-lg p-6 shadow-md hidden"
+            role="region"
+            aria-live="polite"
+            aria-labelledby="resultHeading"
+        >
+            <h2 id="resultHeading" class="text-2xl font-semibold text-indigo-700 mb-4">Server Response</h2>
+            <div class="space-y-3">
+                <p class="text-lg text-gray-700">
+                    <strong class="text-indigo-600">You Sent:</strong>
+                    <span id="originalMessageDisplay" class="font-medium"></span>
+                </p>
+                <p class="text-lg text-gray-700">
+                    <strong class="text-indigo-600">Server Responded:</strong>
+                    <span id="echoedMessageDisplay" class="font-medium"></span>
+                </p>
+                <p class="text-sm text-gray-500 timestamp-text mt-4">
+                    <em>Processed At:</em>
+                    <span id="timestampDisplay" class="font-mono"></span>
+                </p>
+            </div>
+        </section>
+
+        <!-- 5. ErrorDisplay Component -->
+        <section
+            id="errorDisplay"
+            class="bg-red-100 border border-red-400 text-red-700 p-4 rounded-md shadow-md hidden"
+            role="alert"
+            aria-live="assertive"
+        >
+            <h2 class="text-xl font-semibold mb-2">Error!</h2>
+            <p id="errorMessageContent"></p>
+        </section>
+    </main>
+
+    <!--
+        6. Modern ES6+ JavaScript for API Client and DOM Manipulation:
+           All JavaScript logic is embedded here.
+    -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Element References ---
+            // Get references to all necessary HTML elements by their IDs.
+            const messageInput = document.getElementById('messageInput');
+            const echoButton = document.getElementById('echoButton');
+            const resultContainer = document.getElementById('resultContainer');
+            const originalMessageDisplay = document.getElementById('originalMessageDisplay');
+            const echoedMessageDisplay = document.getElementById('echoedMessageDisplay');
+            const timestampDisplay = document.getElementById('timestampDisplay');
+            const errorDisplay = document.getElementById('errorDisplay');
+            const errorMessageContent = document.getElementById('errorMessageContent');
+            const inputError = document.getElementById('inputError'); // For client-side validation error
+
+            // --- API Configuration ---
+            // Determine the API base URL based on the environment (local vs. deployed).
+            // The backend is a Netlify Function (`netlify/functions/api.js`),
+            // so its path will be `/.netlify/functions/api`.
+            const API_BASE_URL = window.location.origin.includes('localhost')
+                ? 'http://localhost:8888/.netlify/functions/api' // For local Netlify Dev server (run `netlify dev`)
+                : '/.netlify/functions/api'; // For deployed Netlify functions
+
+            // Construct the full endpoint URL for the Echo Message API.
+            const ECHO_ENDPOINT = `${API_BASE_URL}/v1/echo`;
+
+            // --- Helper Functions for UI Management ---
+
+            /**
+             * Hides all dynamic display sections (results, errors, input error).
+             * This ensures only one type of message (success, client error, server error) is shown at a time.
+             */
+            const hideAllDisplays = () => {
+                resultContainer.classList.add('hidden');
+                errorDisplay.classList.add('hidden');
+                inputError.classList.add('hidden');
+            };
+
+            /**
+             * Displays an error message to the user.
+             * @param {string} message - The error message content to display.
+             */
+            const showErrorMessage = (message) => {
+                hideAllDisplays(); // Hide other displays first
+                errorMessageContent.textContent = message;
+                errorDisplay.classList.remove('hidden');
+                errorDisplay.classList.add('fade-in'); // Apply fade-in animation
+            };
+
+            /**
+             * Displays the successful echo response from the server.
+             * @param {object} data - The JSON response data received from the server.
+             * @param {string} data.original_message - The message sent by the client.
+             * @param {string} data.echoed_message - The processed message from the server.
+             * @param {string} data.timestamp - The ISO 8601 timestamp from the server.
+             */
+            const showEchoResult = (data) => {
+                hideAllDisplays(); // Hide other displays first
+                originalMessageDisplay.textContent = data.original_message;
+                echoedMessageDisplay.textContent = data.echoed_message;
+                try {
+                    // Format timestamp for better readability using browser's locale
+                    const date = new Date(data.timestamp);
+                    timestampDisplay.textContent = date.toLocaleString();
+                } catch (e) {
+                    // Fallback to raw timestamp if parsing fails
+                    timestampDisplay.textContent = data.timestamp;
+                    console.error("Error parsing timestamp:", e);
+                }
+                resultContainer.classList.remove('hidden');
+                resultContainer.classList.add('fade-in'); // Apply fade-in animation
+            };
+
+            /**
+             * Handles the "Echo It!" button click event and API call.
+             * This function is asynchronous to handle the `fetch` API call.
+             */
+            const handleEcho = async () => {
+                const message = messageInput.value.trim(); // Get message and remove leading/trailing whitespace
+
+                // Client-side validation: Check if message is empty
+                if (!message) {
+                    hideAllDisplays(); // Hide any previous results or errors
+                    inputError.classList.remove('hidden'); // Show the input validation error
+                    inputError.classList.add('fade-in');
+                    messageInput.focus(); // Keep focus on the input for user convenience
+                    return; // Stop function execution
+                }
+
+                // Disable button and update its text to provide user feedback
+                echoButton.disabled = true;
+                echoButton.textContent = 'Echoing...';
+                hideAllDisplays(); // Clear any previous messages/errors before new request
+
+                try {
+                    // 7. Proper API Client Implementation using `fetch()`
+                    const response = await fetch(ECHO_ENDPOINT, {
+                        method: 'POST', // Specify POST method
+                        headers: {
+                            'Content-Type': 'application/json', // Inform server we're sending JSON
+                            'Accept': 'application/json'        // Inform server we prefer JSON response
+                        },
+                        // Convert JavaScript object to JSON string for the request body
+                        body: JSON.stringify({ message: message })
+                    });
+
+                    // Parse the response body as JSON regardless of the HTTP status.
+                    // The backend sends JSON for both success (200) and error (400).
+                    const data = await response.json();
+
+                    if (response.ok) { // `response.ok` is true for 2xx status codes
+                        showEchoResult(data);
+                        messageInput.value = ''; // Clear input field on successful echo
+                    } else {
+                        // Handle server-side errors (e.g., 400 Bad Request as per spec)
+                        // The backend error response has an 'error' field.
+                        const errorMessage = data.error || 'An unknown error occurred on the server.';
+                        showErrorMessage(`Server Error: ${errorMessage}`);
+                    }
+                } catch (error) {
+                    // Handle network errors (e.g., server unreachable, CORS issues not handled by Netlify Dev)
+                    console.error('Fetch error:', error);
+                    showErrorMessage('Could not connect to the server. Please check your network connection or try again later.');
+                } finally {
+                    // Re-enable button and reset its text, regardless of success or failure
+                    echoButton.disabled = false;
+                    echoButton.textContent = 'Echo It!';
+                }
+            };
+
+            // --- Event Listeners ---
+            // Listen for click events on the Echo button
+            echoButton.addEventListener('click', handleEcho);
+
+            // Listen for 'keypress' events on the input field to allow 'Enter' key to trigger echo
+            messageInput.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault(); // Prevent default form submission behavior (e.g., page reload)
+                    handleEcho();
+                }
+            });
+
+            // Listen for 'input' events to dynamically hide the client-side validation error
+            messageInput.addEventListener('input', () => {
+                // If the input field is no longer empty, hide the validation error message
+                if (messageInput.value.trim() && !inputError.classList.contains('hidden')) {
+                    inputError.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+
+    <div style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,0.7);color:white;padding:5px 10px;border-radius:5px;font-family:sans-serif;font-size:12px">
+        Created by Dakota Rain Lock, powered by Holy Grail. A Dakota Rain Lock Invention.
+    </div>
+    
+</body>
+</html>
